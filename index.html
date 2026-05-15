@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>マイ時計メーカー</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1 data-i18n="appTitle">マイ時計メーカー</h1>
+      <div class="header-tools">
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Theme">&#9789;</button>
+        <label class="language-picker">
+          <span data-i18n="language">言語</span>
+          <select id="languageSelect" aria-label="Language selector">
+            <option value="ja">Japanese</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <aside class="control-panel" aria-label="Clock controls">
+        <section class="panel-section">
+          <div class="section-title">
+            <h2 data-i18n="images">Images</h2>
+          </div>
+
+          <div id="cardsRoot" class="cards-stack"></div>
+        </section>
+      </aside>
+
+      <section class="preview-panel" aria-label="Clock preview">
+        <div class="clock-stage">
+          <canvas id="clockCanvas" width="560" height="560"></canvas>
+          <div id="digitalClock" class="digital-clock">00:00:00</div>
+          <canvas id="handsCanvas" width="560" height="560"></canvas>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="src/main.js"></script>
+  </body>
+</html>
