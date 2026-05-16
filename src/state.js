@@ -25,10 +25,20 @@ export const partLabels = {
     minute: "\u5206",
     second: "\u79d2",
   },
+  "zh-CN": {
+    background: "\u80cc\u666f",
+    hour: "\u65f6",
+    minute: "\u5206",
+    second: "\u79d2",
+  },
 };
 
 function getInitialLanguage() {
   const browserLanguage = typeof navigator === "undefined" ? "" : navigator.language?.toLowerCase() ?? "";
+  if (browserLanguage.startsWith("zh")) {
+    return "zh-CN";
+  }
+
   return browserLanguage.startsWith("en") ? "en" : "ja";
 }
 
