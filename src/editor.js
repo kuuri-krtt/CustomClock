@@ -1,9 +1,9 @@
-import { getTransform, HANDS, partLabels, resetDigitalDisplay, resetHandDisplay, resetTransform, state } from "./state.js";
+import { getTransform, HANDS, partLabels, resetDigitalDisplay, resetHandDisplay, resetTransform, setPartImage, state } from "./state.js";
 import { bindDropUpload, openImagePicker } from "./uploader.js";
 
 const translations = {
   en: {
-    appTitle: "マイ時計メーカー",
+    appTitle: "Clock Maker",
     language: "Language",
     images: "Images",
     layerOrder: "Hands",
@@ -25,13 +25,16 @@ const translations = {
     romanNumerals: "Roman",
     uploadTitle: "Choose image",
     uploadHelp: "",
-    reupload: "Re-upload",
+    reupload: "\ud83d\uddbc\ufe0f",
     rotation: "Rotation",
     scale: "Scale",
     aspect: "Aspect",
     followRotation: "Follow hand rotation",
+    removeImage: "Remove image",
     reset: "Reset",
     smoothHands: "Smooth",
+    realtimeMode: "realtime",
+    testMode: "Test",
   },
   ja: {
     appTitle: "マイ時計メーカー",
@@ -56,13 +59,15 @@ const translations = {
     romanNumerals: "\u30ed\u30fc\u30de\u6570\u5b57",
     uploadTitle: "画像を選ぶ",
     uploadHelp: "",
-    reupload: "再アップロード",
+    reupload: "\ud83d\uddbc\ufe0f",
     rotation: "回転",
     scale: "拡大縮小",
     aspect: "縦横比",
     followRotation: "針の回転に追従",
     reset: "リセット",
     smoothHands: "スムーズ",
+    realtimeMode: "実時刻",
+    testMode: "テスト",
   },
 };
 
@@ -123,9 +128,7 @@ function createImageCard(part, onChange) {
   const header = document.createElement("div");
   header.className = "card-header";
 
-  const title = document.createElement("h3");
-  title.textContent = partLabels[state.language][part];
-  header.appendChild(title);
+  header.appendChild(createCardTitle(part, onChange));
 
   const actions = document.createElement("div");
   actions.className = "card-actions";
@@ -142,6 +145,12 @@ function createImageCard(part, onChange) {
       onChange();
     }));
     actions.appendChild(button);
+    actions.appendChild(createIconButton("\u00d7", t("removeImage"), () => {
+      setPartImage(part, null);
+      resetTransform(part);
+      renderEditor(document.querySelector("#cardsRoot"), onChange);
+      onChange();
+    }));
   }
 
   actions.appendChild(createIconButton("↺", t("reset"), () => {
@@ -149,6 +158,19 @@ function createImageCard(part, onChange) {
     renderEditor(document.querySelector("#cardsRoot"), onChange);
     onChange();
   }));
+  if (part === "background") {
+    actions.append(createHeaderColorInput(part, onChange), createBackgroundColorVisibleInput(onChange));
+  } else if (!imageData) {
+    actions.appendChild(createHeaderColorInput(part, onChange));
+  }
+
+  if (part === "background" && imageData) {
+    const [, removeButton, resetButton] = actions.children;
+    actions.append(removeButton, resetButton);
+  }
+
+  orderImageCardActions(actions);
+
   header.appendChild(actions);
 
   card.appendChild(header);
@@ -161,6 +183,90 @@ function createImageCard(part, onChange) {
   }
 
   return card;
+}
+
+function createCardTitle(part, onChange) {
+  const title = document.createElement("h3");
+  title.className = "card-title";
+
+  if (part === "background") {
+    title.append(createBackgroundPartVisibleInput(onChange), document.createTextNode(partLabels[state.language][part]));
+    return title;
+  }
+
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = state.handVisible[part];
+  input.addEventListener("change", () => {
+    state.handVisible[part] = input.checked;
+    renderEditor(document.querySelector("#cardsRoot"), onChange);
+    onChange();
+  });
+
+  title.append(input, document.createTextNode(partLabels[state.language][part]));
+  return title;
+}
+
+function createBackgroundPartVisibleInput(onChange) {
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = state.backgroundPartVisible;
+  input.addEventListener("change", () => {
+    state.backgroundPartVisible = input.checked;
+    onChange();
+  });
+  return input;
+}
+
+function createBackgroundColorVisibleInput(onChange) {
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.className = "header-color-visible-input";
+  input.checked = state.backgroundColorVisible;
+  input.addEventListener("change", () => {
+    state.backgroundColorVisible = input.checked;
+    onChange();
+  });
+  return input;
+}
+
+function orderImageCardActions(actions) {
+  const imageButton = actions.querySelector(".reupload-button");
+  const colorCheckbox = actions.querySelector(".header-color-visible-input");
+  const colorInput = actions.querySelector(".header-color-input");
+  const iconButtons = [...actions.querySelectorAll(".icon-button")];
+  const removeButton = iconButtons.find((button) => button.textContent === "\u00d7");
+  const resetButton = iconButtons.find((button) => button !== removeButton);
+
+  actions.replaceChildren(
+    ...[imageButton, colorCheckbox, colorInput, removeButton, resetButton].filter(Boolean),
+  );
+}
+
+function createHeaderColorInput(part, onChange) {
+  const input = document.createElement("input");
+  input.type = "color";
+  input.className = "header-color-input";
+
+  if (part === "background") {
+    input.value = state.backgroundColor;
+    input.dataset.clockColor = "backgroundColor";
+    input.addEventListener("input", () => {
+      state.backgroundColor = input.value;
+      onChange();
+    });
+    return input;
+  }
+
+  input.value = state.defaultHandColors[part];
+  input.dataset.clockColor = `defaultHandColors.${part}`;
+  input.addEventListener("input", () => {
+    state.defaultHandColors[part] = input.value;
+    state.defaultHandColorCustom[part] = true;
+    document.documentElement.style.setProperty(`--dummy-${part}-color`, input.value);
+    onChange();
+  });
+  return input;
 }
 
 function createOrderEditor(onChange) {
@@ -222,6 +328,7 @@ function createOrderItem(hand, onChange) {
   checkbox.checked = state.handVisible[hand];
   checkbox.addEventListener("change", () => {
     state.handVisible[hand] = checkbox.checked;
+    renderEditor(document.querySelector("#cardsRoot"), onChange);
     onChange();
   });
 
@@ -341,7 +448,7 @@ function createDigitalControl(onChange, onDigitalChange) {
   controls.className = "digital-control-body";
 
   controls.append(
-    createDigitalRangeControl("size", t("size"), 24, 72, 1, "px", onChange, onDigitalChange),
+    createDigitalRangeControl("size", t("size"), 1, 100, 1, "px", onChange, onDigitalChange),
     createDigitalRangeControl("opacity", t("opacity"), 0, 1, 0.01, "", onChange, onDigitalChange),
     createDigitalColorControl("backgroundColor", "backgroundTransparent", t("background"), onChange, onDigitalChange),
     createDigitalColorControl("borderColor", "borderTransparent", t("frame"), onChange, onDigitalChange),
@@ -660,11 +767,11 @@ function createNumeralSizeControl(onChange) {
   const input = document.createElement("input");
   input.type = "range";
   input.min = "10";
-  input.max = "64";
+  input.max = "100";
   input.step = "1";
   input.value = String(state.numeralSize);
 
-  const valueInput = createSliderValueInput(10, 64, 1, state.numeralSize);
+  const valueInput = createSliderValueInput(10, 100, 1, state.numeralSize);
 
   input.addEventListener("input", () => {
     state.numeralSize = Number(input.value);
@@ -673,7 +780,7 @@ function createNumeralSizeControl(onChange) {
   });
 
   valueInput.addEventListener("change", () => {
-    state.numeralSize = clampNumber(Number(valueInput.value), 10, 64);
+    state.numeralSize = clampNumber(Number(valueInput.value), 10, 100);
     input.value = String(state.numeralSize);
     valueInput.value = formatNumericInputValue(state.numeralSize, 1);
     onChange();
@@ -811,7 +918,7 @@ function createUploadArea(part, onChange) {
   const uploadArea = document.createElement("button");
   uploadArea.type = "button";
   uploadArea.className = "upload-area";
-  uploadArea.append(createDummyPreview(part), createUploadText());
+  uploadArea.append(createDummyPreview(part, onChange));
   uploadArea.addEventListener("click", () => openImagePicker(part, () => {
     renderEditor(document.querySelector("#cardsRoot"), onChange);
     onChange();
@@ -823,36 +930,86 @@ function createUploadArea(part, onChange) {
   return uploadArea;
 }
 
-function createDummyPreview(part) {
+function createDummyPreview(part, onChange = () => {}) {
   const preview = document.createElement("div");
   preview.className = `dummy-preview dummy-preview-${part}`;
 
   if (part !== "background") {
-    const image = document.createElement("img");
-    image.alt = "";
-    image.src = `assets/dummy_${part}.svg`;
-    image.addEventListener("load", () => updateDummyPreviewImage(preview, part));
-    preview.appendChild(image);
+    preview.appendChild(createDummyHandSvg(part));
+    const guide = document.createElement("div");
+    guide.className = "preview-vertical-guide";
+    preview.appendChild(guide);
   }
 
-  const center = document.createElement("div");
-  center.className = "preview-center";
+  const center = createPreviewCenter();
   preview.appendChild(center);
+  updateDummyPreviewImage(preview, part);
+  requestAnimationFrame(() => updateDummyPreviewImage(preview, part));
   return preview;
 }
 
+function createPreviewCenter() {
+  const center = document.createElement("div");
+  const cover = document.createElement("div");
+
+  center.className = "preview-center";
+  cover.className = "preview-center-cover";
+  center.appendChild(cover);
+  return center;
+}
+
+function createDummyHandSvg(part) {
+  const specs = {
+    hour: { width: 44, height: 190, x: 22, y1: 168, y2: 24, strokeWidth: 12, dash: "10 10", pin: 8 },
+    minute: { width: 34, height: 250, x: 17, y1: 226, y2: 20, strokeWidth: 9, dash: "10 10", pin: 7 },
+    second: { width: 22, height: 284, x: 11, y1: 254, y2: 18, strokeWidth: 4, dash: "8 8", pin: 5 },
+  };
+  const spec = specs[part];
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  const line = document.createElementNS(namespace, "line");
+  const pin = document.createElementNS(namespace, "circle");
+
+  svg.classList.add("dummy-hand");
+  svg.setAttribute("width", String(spec.width));
+  svg.setAttribute("height", String(spec.height));
+  svg.setAttribute("viewBox", `0 0 ${spec.width} ${spec.height}`);
+  svg.setAttribute("aria-hidden", "true");
+
+  line.setAttribute("x1", String(spec.x));
+  line.setAttribute("y1", String(spec.y1));
+  line.setAttribute("x2", String(spec.x));
+  line.setAttribute("y2", String(spec.y2));
+  line.setAttribute("stroke", "currentColor");
+  line.setAttribute("stroke-width", String(spec.strokeWidth));
+  line.setAttribute("stroke-linecap", "round");
+  line.setAttribute("stroke-dasharray", spec.dash);
+
+  pin.setAttribute("cx", String(spec.x));
+  pin.setAttribute("cy", String(spec.y1));
+  pin.setAttribute("r", String(spec.pin));
+  pin.setAttribute("fill", "currentColor");
+
+  svg.append(line, pin);
+  return svg;
+}
+
 function updateDummyPreviewImage(preview, part) {
-  const image = preview.querySelector("img");
+  const image = preview.querySelector("img, .dummy-hand");
   const center = preview.querySelector(".preview-center");
-  const origin = getPreviewOrigin(preview);
+  const origin = getPreviewOrigin(preview, HANDS.includes(part));
+  const previewScale = image ? getPreviewZoom(part) * getDummyPreviewScale(part) : getPreviewZoom(part);
+
+  preview.style.setProperty("--preview-scale", String(previewScale));
+  preview.style.setProperty("--preview-checker-size", `${16 * previewScale}px`);
+  preview.style.setProperty("--preview-checker-half", `${8 * previewScale}px`);
 
   if (!image) {
-    center.style.transform = `translate(-50%, -50%) translate(${origin.x}px, ${origin.y}px)`;
+    center.style.transform = `translate(-50%, -50%) translate(${origin.x}px, ${origin.y}px) scale(${previewScale})`;
     return;
   }
 
   const transform = getTransform(part);
-  const previewScale = fitImagePreview(preview, image, transform);
   const previewX = origin.x + transform.x * previewScale;
   const previewY = origin.y + transform.y * previewScale;
 
@@ -863,21 +1020,7 @@ function updateDummyPreviewImage(preview, part) {
     `scale(${transform.scaleX * previewScale}, ${transform.scaleY * previewScale})`,
   ].join(" ");
 
-  center.style.transform = `translate(-50%, -50%) translate(${origin.x}px, ${origin.y}px)`;
-}
-
-function createUploadText() {
-  const text = document.createElement("div");
-  text.className = "upload-text";
-  text.innerHTML = `<strong>${t("uploadTitle")}</strong>`;
-
-  if (t("uploadHelp")) {
-    const help = document.createElement("span");
-    help.textContent = t("uploadHelp");
-    text.appendChild(help);
-  }
-
-  return text;
+  center.style.transform = `translate(-50%, -50%) translate(${origin.x}px, ${origin.y}px) scale(${previewScale})`;
 }
 
 function createUploadedBody(part, imageData, onChange) {
@@ -890,7 +1033,7 @@ function createUploadedBody(part, imageData, onChange) {
     onChange();
   });
 
-  body.append(preview, controls);
+  body.append(preview, createPreviewZoomControl(part, preview, onChange), controls);
   return body;
 }
 
@@ -903,29 +1046,100 @@ function createMiniPreview(part, imageData, onChange) {
   image.src = imageData.src;
   image.addEventListener("load", () => updatePreviewImage(preview, part));
 
-  const center = document.createElement("div");
-  center.className = "preview-center";
+  const guide = document.createElement("div");
+  guide.className = "preview-vertical-guide";
 
-  preview.append(image, center);
+  const center = createPreviewCenter();
+
+  preview.append(image, guide, center);
   updatePreviewImage(preview, part);
+  requestAnimationFrame(() => updatePreviewImage(preview, part));
   bindPreviewDrag(preview, part, () => {
     updatePreviewImage(preview, part);
     onChange();
   });
+  bindPreviewWheel(preview, part, onChange);
 
   return preview;
 }
 
+function getPreviewZoom(part) {
+  return clampNumber(Number(state.previewZoom[part]) || 1, 0.05, 20);
+}
+
+function setPreviewZoom(part, value) {
+  state.previewZoom[part] = clampNumber(value, 0.05, 20);
+}
+
+function syncPreviewZoomControl(preview, part) {
+  const row = preview.closest(".image-card")?.querySelector(".preview-zoom-row");
+  const range = row?.querySelector("input[type=\"range\"]");
+  const valueInput = row?.querySelector(".slider-value-input");
+
+  if (range) {
+    range.value = String(state.previewZoom[part]);
+  }
+
+  if (valueInput) {
+    valueInput.value = formatNumericInputValue(state.previewZoom[part], 0.01);
+  }
+}
+
+function createPreviewZoomControl(part, preview, onChange) {
+  const row = document.createElement("label");
+  row.className = "preview-zoom-row";
+
+  const labelText = document.createElement("span");
+  labelText.textContent = String.fromCodePoint(0x1F50D);
+
+  const input = document.createElement("input");
+  input.type = "range";
+  input.min = "0.05";
+  input.max = "20";
+  input.step = "0.01";
+  input.value = String(getPreviewZoom(part));
+
+  const valueInput = createSliderValueInput(0.05, 20, 0.01, getPreviewZoom(part));
+
+  function apply(value) {
+    setPreviewZoom(part, value);
+    input.value = String(state.previewZoom[part]);
+    valueInput.value = formatNumericInputValue(state.previewZoom[part], 0.01);
+    updatePreviewImage(preview, part);
+    onChange();
+  }
+
+  input.addEventListener("input", () => apply(Number(input.value)));
+  valueInput.addEventListener("change", () => apply(Number(valueInput.value)));
+
+  row.append(labelText, input, valueInput);
+  return row;
+}
+function bindPreviewWheel(preview, part, onUpdate) {
+  preview.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const direction = event.deltaY < 0 ? 1 : -1;
+    const factor = direction > 0 ? 1.08 : 1 / 1.08;
+
+    setPreviewZoom(part, getPreviewZoom(part) * factor);
+    syncPreviewZoomControl(preview, part);
+    updatePreviewImage(preview, part);
+    onUpdate();
+  }, { passive: false });
+}
 function updatePreviewImage(preview, part) {
-  const image = preview.querySelector("img");
+  const image = preview.querySelector("img, .dummy-hand");
   const center = preview.querySelector(".preview-center");
   const transform = getTransform(part);
-  const previewScale = fitImagePreview(preview, image, transform);
-  const origin = getPreviewOrigin(preview);
+  const previewScale = getPreviewZoom(part);
+  const origin = getPreviewOrigin(preview, HANDS.includes(part));
   const previewX = origin.x + transform.x * previewScale;
   const previewY = origin.y + transform.y * previewScale;
 
   preview.dataset.previewScale = String(previewScale);
+  preview.style.setProperty("--preview-scale", String(previewScale));
+  preview.style.setProperty("--preview-checker-size", `${16 * previewScale}px`);
+  preview.style.setProperty("--preview-checker-half", `${8 * previewScale}px`);
 
   image.style.transform = [
     "translate(-50%, -50%)",
@@ -934,10 +1148,10 @@ function updatePreviewImage(preview, part) {
     `scale(${transform.scaleX * previewScale}, ${transform.scaleY * previewScale})`,
   ].join(" ");
 
-  center.style.transform = `translate(-50%, -50%) translate(${origin.x}px, ${origin.y}px)`;
+  center.style.transform = `translate(-50%, -50%) translate(${origin.x}px, ${origin.y}px) scale(${previewScale})`;
 }
 
-function fitImagePreview(preview, image, transform) {
+function fitImagePreview(preview, image, transform, lowerOrigin = false) {
   const bounds = getPreviewImageBounds(image, transform);
 
   if (!bounds || bounds.width === 0 || bounds.height === 0) {
@@ -945,18 +1159,38 @@ function fitImagePreview(preview, image, transform) {
   }
 
   const previewRect = preview.getBoundingClientRect();
-  const availableHalfWidth = previewRect.width * 0.42;
-  const availableHalfHeight = previewRect.height * 0.46;
+  const availableHalfWidth = previewRect.width * (lowerOrigin ? 0.9 : 0.44);
 
-  return Math.min(1, availableHalfWidth / bounds.halfWidth, availableHalfHeight / bounds.halfHeight);
+  if (!lowerOrigin) {
+    const availableHalfHeight = previewRect.height * 0.46;
+    return Math.min(1, availableHalfWidth / bounds.halfWidth, availableHalfHeight / bounds.halfHeight);
+  }
+
+  // Hand previews should fill upward from the low rotation center. Use the
+  // top margin as the primary fit target so the preview does not shrink just
+  // because a small part of the image extends below the center.
+  const availableTop = previewRect.height * 0.7;
+  const verticalScale = availableTop / Math.max(bounds.top, 1);
+
+  return Math.min(4, availableHalfWidth / bounds.halfWidth, verticalScale);
 }
 
-function getPreviewOrigin(preview) {
+function getDummyPreviewScale(part) {
+  const scaleByPart = {
+    hour: 90 / 144,
+    minute: 120 / 206,
+    second: 140 / 236,
+  };
+
+  return scaleByPart[part] ?? 1;
+}
+
+function getPreviewOrigin(preview, lower = false) {
   const rect = preview.getBoundingClientRect();
 
   return {
     x: 0,
-    y: rect.height * 0.22,
+    y: lower ? rect.height * 0.3 : 0,
   };
 }
 
@@ -974,9 +1208,14 @@ function getPreviewImageBounds(image, transform) {
   const cos = Math.abs(Math.cos(rotation));
   const sin = Math.abs(Math.sin(rotation));
 
+  const boxHalfWidth = (scaledWidth * cos + scaledHeight * sin) / 2;
+  const boxHalfHeight = (scaledWidth * sin + scaledHeight * cos) / 2;
+
   return {
-    halfWidth: Math.abs(transform.x) + (scaledWidth * cos + scaledHeight * sin) / 2,
-    halfHeight: Math.abs(transform.y) + (scaledWidth * sin + scaledHeight * cos) / 2,
+    halfWidth: Math.abs(transform.x) + boxHalfWidth,
+    halfHeight: Math.abs(transform.y) + boxHalfHeight,
+    top: Math.max(0, boxHalfHeight - transform.y),
+    bottom: Math.max(0, boxHalfHeight + transform.y),
   };
 }
 
@@ -1019,9 +1258,9 @@ function createControls(part, onTransformChange) {
   controls.className = "controls-grid";
 
   controls.append(
-    createRange(part, "rotation", t("rotation"), -180, 180, 1, onTransformChange),
-    createRange(part, "scale", t("scale"), 0.1, 3, 0.01, onTransformChange),
-    createRange(part, "aspect", t("aspect"), 0.35, 2.5, 0.01, onTransformChange),
+    createRange(part, "rotation", t("rotation"), -180, 180, 0.1, onTransformChange),
+    createRange(part, "scale", t("scale"), 0.01, 5, 0.001, onTransformChange),
+    createRange(part, "aspect", t("aspect"), 0.1, 5, 0.001, onTransformChange),
   );
 
   if (HANDS.includes(part)) {
@@ -1132,5 +1371,5 @@ function applyLanguage() {
 }
 
 function t(key) {
-  return translations[state.language][key] ?? key;
+  return translations[state.language][key] ?? translations.en[key] ?? key;
 }

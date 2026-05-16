@@ -10,6 +10,10 @@
     <header class="app-header">
       <h1 data-i18n="appTitle">マイ時計メーカー</h1>
       <div class="header-tools">
+        <button id="pauseButton" class="time-button icon-time-button" type="button" aria-label="Pause">&#9208;</button>
+        <button id="playButton" class="time-button icon-time-button" type="button" aria-label="Play">&#9654;</button>
+        <button id="realtimeButton" class="time-button" type="button" data-i18n="realtimeMode">&#23455;&#26178;&#21051;</button>
+        <button id="testButton" class="time-button" type="button" data-i18n="testMode">&#12486;&#12473;&#12488;</button>
         <button id="themeToggle" class="theme-toggle" type="button" aria-label="Theme">&#9789;</button>
         <label class="language-picker">
           <span data-i18n="language">言語</span>
@@ -35,7 +39,7 @@
       <section class="preview-panel" aria-label="Clock preview">
         <div class="clock-stage">
           <canvas id="clockCanvas" width="560" height="560"></canvas>
-          <div id="digitalClock" class="digital-clock">00:00:00</div>
+          <div id="digitalClock" class="digital-clock"><span id="digitalClockText" class="digital-clock-text">00:00:00</span></div>
           <canvas id="handsCanvas" width="560" height="560"></canvas>
         </div>
       </section>

@@ -1,21 +1,11 @@
 import { HANDS, state } from "./state.js";
 
-const darkHandColors = {
-  hour: "#f1f1f1",
-  minute: "#d7ecff",
-  second: "#ff786f",
-};
-
-const lightHandColors = {
-  hour: "#18212b",
-  minute: "#1677c8",
-  second: "#c7322b",
-};
-
 const BASE_SIZE = 560;
 const BASE_CENTER = BASE_SIZE / 2;
 const NONE_FRAME_PADDING = 24;
 const FRAME_LAYOUT_PADDING = 8;
+const TEST_SPEED = 50;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 let needsRender = true;
 
@@ -23,19 +13,62 @@ export function requestRender() {
   needsRender = true;
 }
 
+export function startClockTest() {
+  const timeSource = getDisplayTime();
+
+  state.timeMode.mode = "test";
+  state.timeMode.testBaseTimeMs = getTimeOfDayMs(timeSource.date);
+  state.timeMode.testStartedAt = performance.now();
+  needsRender = true;
+}
+
+export function useRealtimeClock() {
+  state.timeMode.mode = "realtime";
+  needsRender = true;
+}
+
+export function pauseClock() {
+  const timeSource = getDisplayTime();
+  state.timeMode.mode = "fixed";
+  state.timeMode.fixedTimeMs = getTimeOfDayMs(timeSource.date);
+  needsRender = true;
+}
+
+export function setFixedClockTime(timeOfDayMs) {
+  state.timeMode.mode = "fixed";
+  state.timeMode.fixedTimeMs = normalizeTimeOfDayMs(timeOfDayMs);
+  needsRender = true;
+}
+
+export function getCurrentClockTimeOfDayMs() {
+  return getTimeOfDayMs(getDisplayTime().date);
+}
+
+export function playClock() {
+  if (state.timeMode.mode !== "fixed") {
+    return;
+  }
+
+  state.timeMode.mode = "play";
+  state.timeMode.playBaseTimeMs = state.timeMode.fixedTimeMs;
+  state.timeMode.playStartedAt = performance.now();
+  needsRender = true;
+}
+
 export function createRenderer(faceCanvas, handsCanvas, digitalClock) {
   const faceContext = faceCanvas.getContext("2d");
   const handsContext = handsCanvas.getContext("2d");
-  let currentSecond = -1;
-  let currentAngles = calculateAngles(new Date());
+  const animatedLayers = createAnimatedLayers(faceCanvas, handsCanvas);
+  let currentSecond = "";
+  let currentAngles = calculateAngles(getDisplayTime().date);
 
   function render() {
-    const now = new Date();
-    const nextSecond = Math.floor(now.getTime() / 1000);
-    const smooth = state.smoothHands;
+    const timeSource = getDisplayTime();
+    const now = timeSource.date;
+    const nextSecond = formatTime(now);
+    const smooth = state.smoothHands || timeSource.mode === "test";
+    const uploadedImages = hasUploadedImages();
 
-    // requestAnimationFrame keeps rendering coordinated with the browser, but
-    // clock math and digital text only update when the local second changes.
     if (nextSecond !== currentSecond) {
       currentSecond = nextSecond;
       updateDigitalClock(digitalClock, now);
@@ -45,12 +78,15 @@ export function createRenderer(faceCanvas, handsCanvas, digitalClock) {
     if (smooth) {
       currentAngles = calculateAngles(now, true);
       needsRender = true;
+    } else if (uploadedImages) {
+      currentAngles = calculateAngles(now);
+      needsRender = true;
     } else if (needsRender) {
       currentAngles = calculateAngles(now);
     }
 
     if (needsRender) {
-      drawClock(faceContext, handsContext, faceCanvas, handsCanvas, currentAngles);
+      drawClock(faceContext, handsContext, faceCanvas, handsCanvas, animatedLayers, currentAngles);
       needsRender = false;
     }
 
@@ -58,6 +94,82 @@ export function createRenderer(faceCanvas, handsCanvas, digitalClock) {
   }
 
   requestAnimationFrame(render);
+}
+
+function createAnimatedLayers(faceCanvas, handsCanvas) {
+  const stage = faceCanvas.parentElement;
+  const faceLayer = document.createElement("div");
+  const handsLayer = document.createElement("div");
+
+  faceLayer.id = "animatedFaceLayer";
+  faceLayer.className = "animated-parts-layer animated-face-layer";
+  handsLayer.id = "animatedHandsLayer";
+  handsLayer.className = "animated-parts-layer animated-hands-layer";
+  stage.insertBefore(faceLayer, faceCanvas.nextSibling);
+  stage.insertBefore(handsLayer, handsCanvas);
+
+  return {
+    face: faceLayer,
+    hands: handsLayer,
+  };
+}
+
+function hasUploadedImages() {
+  if (state.backgroundPartVisible && state.parts.background) {
+    return true;
+  }
+
+  return HANDS.some((hand) => state.handVisible[hand] && state.parts[hand]);
+}
+
+function getDisplayTime() {
+  if (state.timeMode.mode === "fixed") {
+    return {
+      date: createLocalTimeDate(state.timeMode.fixedTimeMs),
+      mode: "fixed",
+    };
+  }
+
+  if (state.timeMode.mode === "play") {
+    const elapsed = performance.now() - state.timeMode.playStartedAt;
+    return {
+      date: createLocalTimeDate(state.timeMode.playBaseTimeMs + elapsed),
+      mode: "play",
+    };
+  }
+
+  if (state.timeMode.mode === "test") {
+    const elapsed = performance.now() - state.timeMode.testStartedAt;
+    return {
+      date: createLocalTimeDate(state.timeMode.testBaseTimeMs + elapsed * TEST_SPEED),
+      mode: "test",
+    };
+  }
+
+  return {
+    date: new Date(),
+    mode: "realtime",
+  };
+}
+
+function createLocalTimeDate(timeOfDayMs) {
+  const normalizedTime = normalizeTimeOfDayMs(timeOfDayMs);
+  const localMidnight = new Date();
+  localMidnight.setHours(0, 0, 0, 0);
+  return new Date(localMidnight.getTime() + normalizedTime);
+}
+
+function normalizeTimeOfDayMs(timeOfDayMs) {
+  return ((timeOfDayMs % DAY_MS) + DAY_MS) % DAY_MS;
+}
+
+function getTimeOfDayMs(date) {
+  return (
+    date.getHours() * 60 * 60 * 1000
+    + date.getMinutes() * 60 * 1000
+    + date.getSeconds() * 1000
+    + date.getMilliseconds()
+  );
 }
 
 export function calculateAngles(date, smooth = false) {
@@ -74,14 +186,20 @@ export function calculateAngles(date, smooth = false) {
   };
 }
 
-function drawClock(faceContext, handsContext, faceCanvas, handsCanvas, angles) {
+function drawClock(faceContext, handsContext, faceCanvas, handsCanvas, animatedLayers, angles) {
   const layout = getCanvasLayout(angles);
   const handsLayout = getHandsCanvasLayout(angles);
-  applyCanvasLayout(faceCanvas, layout);
-  applyCanvasLayout(handsCanvas, handsLayout, {
-    x: layout.centerX - handsLayout.centerX,
-    y: layout.centerY - handsLayout.centerY,
+  applyCanvasLayout(faceCanvas, layout, {
+    x: BASE_CENTER - layout.centerX,
+    y: BASE_CENTER - layout.centerY,
   });
+  applyCanvasLayout(handsCanvas, handsLayout, {
+    x: BASE_CENTER - handsLayout.centerX,
+    y: BASE_CENTER - handsLayout.centerY,
+  });
+  handsCanvas.dataset.centerX = String(handsLayout.centerX);
+  handsCanvas.dataset.centerY = String(handsLayout.centerY);
+  syncAnimatedLayer(animatedLayers, angles);
 
   const width = layout.width;
   const height = layout.height;
@@ -97,6 +215,9 @@ function drawClock(faceContext, handsContext, faceCanvas, handsCanvas, angles) {
   if (state.clockFrameVisible) {
     faceContext.save();
     clipToFrame(faceContext, centerX, centerY, radius * state.clockFrameSize);
+  }
+
+  if (state.backgroundColorVisible) {
     faceContext.fillStyle = state.backgroundColor;
     faceContext.fillRect(0, 0, width, height);
   }
@@ -125,10 +246,10 @@ function drawClock(faceContext, handsContext, faceCanvas, handsCanvas, angles) {
     const imageData = state.parts[hand];
 
     if (imageData) {
-      drawImagePart(handsContext, hand, handsCenterX, handsCenterY, angles[hand]);
-    } else {
-      drawPlaceholderHand(handsContext, hand, handsCenterX, handsCenterY, angles[hand]);
+      continue;
     }
+
+    drawPlaceholderHand(handsContext, hand, handsCenterX, handsCenterY, angles[hand]);
   }
 
   if (state.pinVisible) {
@@ -260,11 +381,99 @@ function pointOnSquare(angle, halfSize) {
 }
 
 function drawBackground(context, centerX, centerY) {
-  if (!state.parts.background) {
+  if (!state.backgroundPartVisible || !state.parts.background) {
     return;
   }
 
-  drawImagePart(context, "background", centerX, centerY, 0);
+  return;
+}
+
+function syncAnimatedLayer(layers, angles) {
+  const activeParts = getUploadedLayerParts();
+  const activePartNames = new Set(activeParts.map(({ part }) => part));
+
+  applyAnimatedFaceClip(layers.face);
+
+  for (const layer of [layers.face, layers.hands]) {
+    layer.querySelectorAll(".uploaded-clock-part").forEach((element) => {
+      if (!activePartNames.has(element.dataset.part)) {
+        element.remove();
+      }
+    });
+  }
+
+  for (const { part, zIndex } of activeParts) {
+    const imageData = state.parts[part];
+    const transform = state.transform[part];
+    const handAngle = part === "background" ? 0 : angles[part];
+    const position = getTransformedPosition(transform, handAngle);
+    const rotation = transform.followRotation ? handAngle + transform.rotation : transform.rotation;
+    const layer = part === "background" ? layers.face : layers.hands;
+    const image = getAnimatedLayerImage(layer, part, imageData);
+
+    image.style.left = `${BASE_CENTER + position.x}px`;
+    image.style.top = `${BASE_CENTER + position.y}px`;
+    image.style.width = `${imageData.width}px`;
+    image.style.height = `${imageData.height}px`;
+    image.style.zIndex = String(zIndex);
+    image.style.transform = [
+      "translate(-50%, -50%)",
+      `rotate(${rotation}deg)`,
+      `scale(${transform.scaleX}, ${transform.scaleY})`,
+    ].join(" ");
+  }
+}
+
+function applyAnimatedFaceClip(layer) {
+  if (!state.clockFrameVisible) {
+    layer.style.clipPath = "none";
+    return;
+  }
+
+  const radius = BASE_SIZE * 0.44 * state.clockFrameSize;
+
+  if (state.clockClip === "square") {
+    layer.style.clipPath = `inset(${BASE_CENTER - radius}px ${BASE_CENTER - radius}px)`;
+    return;
+  }
+
+  layer.style.clipPath = `circle(${radius}px at ${BASE_CENTER}px ${BASE_CENTER}px)`;
+}
+
+function getUploadedLayerParts() {
+  const parts = [];
+
+  if (state.backgroundPartVisible && state.parts.background) {
+    parts.push({ part: "background", zIndex: 1 });
+  }
+
+  for (const [index, hand] of state.handOrder.entries()) {
+    if (state.handVisible[hand] && state.parts[hand]) {
+      parts.push({ part: hand, zIndex: 100 + state.handOrder.length - index });
+    }
+  }
+
+  return parts;
+}
+
+function getAnimatedLayerImage(layer, part, imageData) {
+  let image = layer.querySelector(`.uploaded-clock-part[data-part="${part}"]`);
+
+  if (!image) {
+    image = document.createElement("img");
+    image.className = "uploaded-clock-part";
+    image.dataset.part = part;
+    image.alt = "";
+    layer.appendChild(image);
+  }
+
+  const src = imageData.displaySrc ?? imageData.objectUrl ?? imageData.src;
+
+  if (image.src !== src) {
+    image.src = src;
+  }
+
+  return image;
 }
 
 function drawImagePart(context, part, centerX, centerY, handAngle) {
@@ -482,7 +691,7 @@ function getTickColor(isHour) {
 }
 
 function getPlaceholderHandColor(hand) {
-  return state.theme === "light" ? lightHandColors[hand] : darkHandColors[hand];
+  return state.defaultHandColors[hand];
 }
 
 function hexToRgba(hex, alpha) {
@@ -503,8 +712,12 @@ function formatTime(date) {
 }
 
 function updateDigitalClock(digitalClock, date) {
+  const textElement = digitalClock.querySelector(".digital-clock-text") ?? digitalClock;
+
   if (state.digitalClock) {
-    digitalClock.textContent = formatTime(date);
+    if (document.activeElement !== textElement) {
+      textElement.textContent = formatTime(date);
+    }
     digitalClock.classList.remove("hidden");
   } else {
     digitalClock.classList.add("hidden");
